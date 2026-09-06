@@ -113,6 +113,10 @@
           </div>
         </div>
 
+        <label>予約投稿（公開日時）— 空欄なら即時投稿</label>
+        <input type="datetime-local" name="publish_at_local" id="publish_at_local">
+        <p class="muted">指定すると、その日時に自動で「公開」されます（それまでは非公開）。</p>
+
         <label class="check"><input type="checkbox" name="as_shorts" checked> Shorts として投稿（#Shorts を付与）</label>
         <label class="check"><input type="checkbox" name="made_for_kids"> 子ども向けコンテンツ</label>
 
@@ -156,12 +160,21 @@
       btn.textContent = 'アップロード中…（動画サイズ次第で時間がかかります）';
       result.innerHTML = '';
       try {
-        const res = await fetch('/upload', { method: 'POST', body: new FormData(form) });
+        const fd = new FormData(form);
+        // 予約日時が指定されていれば ISO(UTC) に変換して送る
+        const localVal = document.getElementById('publish_at_local').value;
+        if (localVal) { fd.set('publish_at', new Date(localVal).toISOString()); }
+        const res = await fetch('/upload', { method: 'POST', body: fd });
         const data = await res.json();
         if (data.ok) {
-          result.innerHTML = '<p class="ok">✅ 投稿完了！</p>' +
+          let msg = '<p class="ok">✅ 投稿完了！</p>' +
             '<p>公開URL: <a href="' + data.url + '" target="_blank">' + data.url + '</a></p>' +
             '<p><a href="' + data.studio_url + '" target="_blank">YouTube Studio で編集</a></p>';
+          if (data.scheduled) {
+            msg += '<p>⏰ 予約：<b>' + new Date(data.scheduled).toLocaleString() +
+              '</b> に自動で公開されます（それまでは非公開）。</p>';
+          }
+          result.innerHTML = msg;
         } else {
           result.innerHTML = '<p class="err">❌ 失敗: ' + (data.error || '不明なエラー') + '</p>';
         }
