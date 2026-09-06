@@ -37,6 +37,25 @@
 - 無料枠は 1 日あたり 10,000 ユニット。**動画アップ1本 ≒ 1,600 ユニット**なので、無料だと **1日約6本**まで。
 - 最初は公開設定を「非公開」にしてテストするのがおすすめ。
 
+## Render へのデプロイ（公開URL）
+
+このアプリは Render で公開URLとして動かせます。
+
+1. [Render](https://render.com) にログイン → 「New +」→「Blueprint」
+2. このリポジトリ（`dougatoukou`）を選択（`render.yaml` を自動読込）
+3. 環境変数を設定：
+   - `GOOGLE_CLIENT_ID` … Google Cloud のOAuthクライアントID
+   - `GOOGLE_CLIENT_SECRET` … 同シークレット
+   - `BASE_URL` … デプロイ後のURL（例 `https://dougatoukou.onrender.com`）
+   - `GOOGLE_REFRESH_TOKEN`（任意）… 設定するとログイン不要で常時認証
+4. デプロイ後、**Google Cloud の「承認済みリダイレクトURI」に
+   `https://<あなたのURL>/oauth2callback` を追加**
+5. 公開URLを開いて連携 → 投稿
+
+> メモ: Render無料枠はしばらくアクセスが無いとスリープし、再起動で
+> `token.json` が消えます。常時ログイン維持したい場合は
+> `GOOGLE_REFRESH_TOKEN` を設定してください。
+
 ## 今後の拡張
 
 - [ ] TikTok（Content Posting API / 要 `video.publish` 審査）

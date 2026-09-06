@@ -1,0 +1,26 @@
+# Render 用の設定（Blueprint）。Renderで「New +」→「Blueprint」から
+# このリポジトリを指定すると、この内容で自動セットアップされます。
+services:
+  - type: web
+    name: dougatoukou
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 600
+    envVars:
+      # Google Cloud のOAuthクライアント（ウェブアプリ）の値
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      # 公開URL（デプロイ後に決まる https://<name>.onrender.com を設定）
+      - key: BASE_URL
+        sync: false
+      # 任意: これを設定するとログイン不要で常時認証（token.jsonのrefresh_token）
+      - key: GOOGLE_REFRESH_TOKEN
+        sync: false
+      # セッション鍵は自動生成
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: "3.11.9"
