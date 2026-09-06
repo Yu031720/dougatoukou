@@ -1,0 +1,12 @@
+# 秘密情報・認証（絶対にコミットしない）
+client_secret.json
+token.json
+*.env
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# OS
+.DS_Store
