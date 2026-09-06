@@ -9,8 +9,11 @@
 import os
 import tempfile
 
+import hmac
+
 from flask import (
-    Flask, redirect, request, session, url_for, render_template, jsonify
+    Flask, redirect, request, session, url_for, render_template, jsonify,
+    render_template_string
 )
 
 import google_auth_oauthlib.flow
@@ -41,6 +44,56 @@ if REDIRECT_URI.startswith("http://"):
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY") or os.urandom(24)
+
+# アプリのアクセス用パスワード。設定されている場合のみログインゲートが有効。
+APP_PASSWORD = os.environ.get("APP_PASSWORD", "")
+
+LOGIN_HTML = """<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ログイン</title><style>
+ body{margin:0;font-family:-apple-system,"Hiragino Sans",sans-serif;background:#f5f5f7;
+ color:#1d1d1f;display:flex;min-height:100vh;align-items:center;justify-content:center}
+ .card{background:#fff;padding:28px;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.1);
+ width:320px}h1{font-size:18px;margin:0 0 16px}
+ input{width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #d0d0d5;
+ border-radius:10px;font-size:15px}
+ button{width:100%;margin-top:14px;background:#ff3b30;color:#fff;border:none;
+ border-radius:11px;padding:12px;font-size:15px;font-weight:700;cursor:pointer}
+ .err{color:#ff3b30;font-size:13px;margin-top:10px}
+ .dot{width:9px;height:9px;border-radius:50%;background:#ff3b30;display:inline-block;margin-right:6px}
+ @media(prefers-color-scheme:dark){body{background:#1a1a1c;color:#f0f0f2}
+ .card{background:#26262a}input{background:#1a1a1c;color:#f0f0f2;border-color:#444}}
+</style></head><body><form class="card" method="post">
+<h1><span class="dot"></span>マルチ投稿 ログイン</h1>
+<input type="password" name="password" placeholder="パスワード" autofocus required>
+<button type="submit">ログイン</button>
+{% if error %}<p class="err">{{ error }}</p>{% endif %}
+</form></body></html>"""
+
+
+@app.before_request
+def _require_login():
+    # APP_PASSWORD 未設定ならゲート無効（従来どおり）
+    if not APP_PASSWORD:
+        return
+    if request.endpoint in ("login", "static"):
+        return
+    if session.get("authed"):
+        return
+    return redirect(url_for("login"))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not APP_PASSWORD:
+        return redirect(url_for("index"))
+    error = ""
+    if request.method == "POST":
+        if hmac.compare_digest(request.form.get("password", ""), APP_PASSWORD):
+            session["authed"] = True
+            return redirect(url_for("index"))
+        error = "パスワードが違います"
+    return render_template_string(LOGIN_HTML, error=error)
 
 
 # ---------- OAuthクライアント設定（ファイル or 環境変数） ----------
@@ -191,6 +244,8 @@ def upload():
     privacy = request.form.get("privacy") or "private"  # private / unlisted / public
     made_for_kids = request.form.get("made_for_kids") == "on"
     as_shorts = request.form.get("as_shorts") == "on"
+    # 予約投稿: ISO8601(UTC)の公開日時。指定時はYouTubeが自動公開する
+    publish_at = (request.form.get("publish_at") or "").strip()
 
     # Shorts扱いにしたい場合、#Shorts を説明末尾に付与（縦型・短尺が前提）
     if as_shorts and "#shorts" not in (title + description).lower():
@@ -202,6 +257,16 @@ def upload():
     file.save(tmp.name)
     tmp.close()
 
+    status = {
+        "privacyStatus": privacy,
+        "selfDeclaredMadeForKids": made_for_kids,
+    }
+    # 予約投稿: publishAt を指定すると、その時刻に自動公開される。
+    # 予約するには privacyStatus が "private" である必要がある。
+    if publish_at:
+        status["privacyStatus"] = "private"
+        status["publishAt"] = publish_at
+
     body = {
         "snippet": {
             "title": title,
@@ -209,10 +274,7 @@ def upload():
             "tags": tags,
             "categoryId": "22",  # People & Blogs
         },
-        "status": {
-            "privacyStatus": privacy,
-            "selfDeclaredMadeForKids": made_for_kids,
-        },
+        "status": status,
     }
 
     try:
@@ -229,6 +291,7 @@ def upload():
             "video_id": video_id,
             "url": f"https://youtu.be/{video_id}",
             "studio_url": f"https://studio.youtube.com/video/{video_id}/edit",
+            "scheduled": publish_at or None,
         })
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
