@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>マルチ投稿（YouTube）</title>
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Hiragino Sans", sans-serif;
+    background: #f5f5f7; color: #1d1d1f; line-height: 1.6;
+  }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1a1a1c; color: #f0f0f2; }
+    .card { background: #26262a !important; }
+    input, textarea, select { background: #1a1a1c !important; color: #f0f0f2 !important; border-color: #444 !important; }
+    .muted { color: #9a9aa0 !important; }
+    code { background: #333 !important; }
+  }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 24px 16px 80px; }
+  h1 { font-size: 22px; display: flex; align-items: center; gap: 10px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #ff3b30; }
+  .card { background: #fff; border-radius: 14px; padding: 20px; margin-top: 16px;
+          box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  label { display: block; font-weight: 600; margin: 14px 0 4px; font-size: 14px; }
+  input[type=text], textarea, select {
+    width: 100%; padding: 10px 12px; border: 1px solid #d0d0d5; border-radius: 10px;
+    font-size: 15px; font-family: inherit;
+  }
+  textarea { resize: vertical; min-height: 90px; }
+  .row { display: flex; gap: 12px; }
+  .row > div { flex: 1; }
+  .check { display: flex; align-items: center; gap: 8px; font-weight: 500; margin-top: 14px; }
+  .check input { width: 18px; height: 18px; }
+  button {
+    background: #ff3b30; color: #fff; border: none; border-radius: 12px;
+    padding: 14px 20px; font-size: 16px; font-weight: 700; cursor: pointer;
+    width: 100%; margin-top: 20px;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+  .btn-link { display: inline-block; background: #ff3b30; color:#fff; text-decoration:none;
+    padding: 12px 20px; border-radius: 12px; font-weight: 700; }
+  .muted { color: #6e6e73; font-size: 13px; }
+  code { background: #eee; padding: 2px 6px; border-radius: 5px; font-size: 13px; }
+  .drop { border: 2px dashed #c0c0c8; border-radius: 12px; padding: 22px; text-align: center;
+    cursor: pointer; }
+  .drop.has { border-color: #ff3b30; }
+  ol { padding-left: 20px; } ol li { margin: 6px 0; }
+  #result { margin-top: 16px; }
+  .ok { color: #1a8f3c; font-weight: 700; }
+  .err { color: #ff3b30; font-weight: 700; white-space: pre-wrap; }
+  a { color: #0a84ff; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span class="dot"></span> マルチ投稿 <span class="muted" style="font-weight:400">/ YouTube</span></h1>
+
+  {% if state == "no_client" %}
+    <div class="card">
+      <h3>セットアップ（あと1ステップ）</h3>
+      <p class="muted">Google の認証情報ファイルがまだ置かれていません。以下を行ってください。</p>
+      <ol>
+        <li><a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a> でプロジェクト作成</li>
+        <li>「YouTube Data API v3」を有効化</li>
+        <li>OAuth同意画面を設定（外部／自分をテストユーザーに追加）</li>
+        <li>認証情報 → OAuthクライアントID（<b>種類＝ウェブアプリ</b>）を作成</li>
+        <li>「承認済みのリダイレクトURI」に
+          <code>http://localhost:8080/oauth2callback</code> を追加</li>
+        <li>JSONをダウンロードし、<code>client_secret.json</code> という名前で
+          このフォルダ（multipost/）に置く</li>
+        <li>このページを再読み込み</li>
+      </ol>
+    </div>
+
+  {% elif state == "need_auth" %}
+    <div class="card">
+      <h3>YouTube と連携</h3>
+      <p class="muted">Googleでログインして、この端末にアップロード権限を許可します。</p>
+      <a class="btn-link" href="/authorize">▶ YouTube を連携する</a>
+    </div>
+
+  {% else %}
+    <div class="card">
+      <p class="muted">連携中のチャンネル：<b>{{ channel or "(取得できませんでした)" }}</b>
+        &nbsp;·&nbsp; <a href="/logout">連携を解除</a></p>
+
+      <form id="form">
+        <label>動画ファイル（縦型 9:16 推奨）</label>
+        <div class="drop" id="drop">
+          <span id="dropText">クリックして動画を選択（または D&D）</span>
+          <input id="video" name="video" type="file" accept="video/*" style="display:none" required>
+        </div>
+
+        <label>タイトル</label>
+        <input type="text" name="title" placeholder="タイトル" required>
+
+        <label>説明</label>
+        <textarea name="description" placeholder="説明文"></textarea>
+
+        <label>ハッシュタグ / タグ（スペースまたはカンマ区切り）</label>
+        <input type="text" name="tags" placeholder="例: 料理 時短 レシピ">
+
+        <div class="row">
+          <div>
+            <label>公開設定</label>
+            <select name="privacy">
+              <option value="private">非公開</option>
+              <option value="unlisted">限定公開</option>
+              <option value="public">公開</option>
+            </select>
+          </div>
+        </div>
+
+        <label class="check"><input type="checkbox" name="as_shorts" checked> Shorts として投稿（#Shorts を付与）</label>
+        <label class="check"><input type="checkbox" name="made_for_kids"> 子ども向けコンテンツ</label>
+
+        <button id="submit" type="submit">▶ YouTube に投稿</button>
+      </form>
+
+      <div id="result"></div>
+    </div>
+  {% endif %}
+</div>
+
+<script>
+  const drop = document.getElementById('drop');
+  const fileInput = document.getElementById('video');
+  const form = document.getElementById('form');
+  if (drop) {
+    drop.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length) {
+        document.getElementById('dropText').textContent = '選択中: ' + fileInput.files[0].name;
+        drop.classList.add('has');
+      }
+    });
+    ['dragover'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add('has'); }));
+    ['dragleave','drop'].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); }));
+    drop.addEventListener('drop', ev => {
+      ev.preventDefault();
+      if (ev.dataTransfer.files.length) {
+        fileInput.files = ev.dataTransfer.files;
+        fileInput.dispatchEvent(new Event('change'));
+      }
+    });
+  }
+
+  if (form) {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = document.getElementById('submit');
+      const result = document.getElementById('result');
+      btn.disabled = true;
+      btn.textContent = 'アップロード中…（動画サイズ次第で時間がかかります）';
+      result.innerHTML = '';
+      try {
+        const res = await fetch('/upload', { method: 'POST', body: new FormData(form) });
+        const data = await res.json();
+        if (data.ok) {
+          result.innerHTML = '<p class="ok">✅ 投稿完了！</p>' +
+            '<p>公開URL: <a href="' + data.url + '" target="_blank">' + data.url + '</a></p>' +
+            '<p><a href="' + data.studio_url + '" target="_blank">YouTube Studio で編集</a></p>';
+        } else {
+          result.innerHTML = '<p class="err">❌ 失敗: ' + (data.error || '不明なエラー') + '</p>';
+        }
+      } catch (err) {
+        result.innerHTML = '<p class="err">❌ 通信エラー: ' + err + '</p>';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '▶ YouTube に投稿';
+      }
+    });
+  }
+</script>
+</body>
+</html>
